@@ -1,0 +1,13 @@
+# IDE
+.sublime-project-files/
+.venv/
+__pycache__/
+data/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Streamlit
+.streamlit/
