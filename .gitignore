@@ -1,8 +1,9 @@
-# IDE
 .sublime-project-files/
 .venv/
-__pycache__/
 data/
+__pycache__/
+temp_uploads/
+sample_input/
 
 # Database
 *.db

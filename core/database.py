@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 class DatabaseManager:
     # ... (Keep __init__, __enter__, __exit__, connect, close, sanitize_name, create_dynamic_table as they were in the last complete version) ...
-    def __init__(self, db_path: str = 'data/dynamic_data.db'):
+    def __init__(self, db_path: str = 'data/database.db'):
         self.db_path = Path(db_path).resolve()
         self.connection: Optional[sqlite3.Connection] = None
         logging.info(f"DatabaseManager initialized for path: {self.db_path}")

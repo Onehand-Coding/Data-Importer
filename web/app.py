@@ -95,12 +95,12 @@ def generate_timestamped_filename(original_name):
 def show_db_config_section():
     """UI for Database Configuration."""
     with st.sidebar.expander("⚙️ Database Settings", expanded=True):
-        default_db_path = st.session_state.get('db_path_input', "data/importer_data.db")
+        default_db_path = st.session_state.get('db_path_input', "data/database.db")
         db_path_input = st.text_input(
             "Database File:",
             value=default_db_path,
             key="db_path_widget",
-            help="Path to the SQLite database file (e.g., data/my_imports.db)"
+            help="Path to the SQLite database file (e.g., data/database.db)"
         )
         st.session_state['db_path_input'] = db_path_input # Store user input for next run
 
