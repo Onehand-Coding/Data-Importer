@@ -1,12 +1,14 @@
-# core/importers/base_importer.py
-
-from abc import ABC, abstractmethod
-from typing import Dict, List, Tuple, Any, Mapping, Optional, Generator
-from pathlib import Path
 import json
 import logging
+import sqlite3
+from pathlib import Path
+from abc import ABC, abstractmethod
+from typing import Dict, List, Tuple, Any, Mapping, Optional, Generator
+
 import pandas as pd
-import sqlite3 # <--- ADD THIS LINE
+
+# Configure logging for this module
+logger = logging.getLogger(__name__)
 
 class ImportResult:
     """Holds the results of an import operation."""
@@ -24,7 +26,7 @@ class ImportResult:
             'data': data_snippet or "{}"
         }
         self.errors.append(error_entry)
-        logging.warning(f"Import Error [Row: {error_entry['row']}]: {error} - Data: {data_snippet}")
+        logger.warning(f"Import Error [Row: {error_entry['row']}]: {error} - Data: {data_snippet}")
 
     def to_dict(self) -> Dict[str, Any]:
         """Converts results to a dictionary."""
@@ -47,7 +49,7 @@ class BaseImporter(ABC):
         if db_manager is None:
             raise ValueError("DatabaseManager instance is required.")
         self.db_manager = db_manager
-        logging.info(f"{self.__class__.__name__} initialized.")
+        logger.info(f"{self.__class__.__name__} initialized.")
 
     @abstractmethod
     def get_headers(self, file_path: Path) -> List[str]:
@@ -93,7 +95,7 @@ class BaseImporter(ABC):
                 target_data[db_field] = value.strip() if isinstance(value, str) else value
             else:
                 # Handle case where expected source header isn't in the raw row
-                logging.warning(f"Mapped source header '{source_header}' not found in raw row. Setting target field '{db_field}' to None.")
+                logger.warning(f"Mapped source header '{source_header}' not found in raw row. Setting target field '{db_field}' to None.")
                 target_data[db_field] = None
         return target_data
 
@@ -176,7 +178,7 @@ class BaseImporter(ABC):
             result.add_error(None, error_msg, self._format_data_snippet(data_to_insert))
             return False
         except Exception as e:
-            logging.exception(f"Unexpected database insert error for table {sanitized_table_name}: {e}")
+            logger.exception(f"Unexpected database insert error for table {sanitized_table_name}: {e}")
             result.add_error(None, f"Unexpected DB Insert Error: {str(e)}", self._format_data_snippet(data_to_insert))
             return False
 
@@ -246,12 +248,12 @@ class BaseImporter(ABC):
                         results.rows_skipped += 1
 
                 except Exception as row_err:
-                    logging.exception(f"Unexpected error processing row {row_number}: {row_err}")
+                    logger.exception(f"Unexpected error processing row {row_number}: {row_err}")
                     results.add_error(row_number, f"Unexpected row processing error: {str(row_err)}", self._format_data_snippet(raw_row))
                     results.rows_skipped += 1
 
         except Exception as file_err:
-             logging.exception(f"Failed to read or process file {file_path}: {file_err}")
+             logger.exception(f"Failed to read or process file {file_path}: {file_err}")
              results.add_error(0, f"Failed to read file: {str(file_err)}")
              # No rows processed if file read fails early
 

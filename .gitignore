@@ -1,4 +1,4 @@
-.sublime-project-files/
+*.sublime-*
 .venv/
 data/
 __pycache__/
