@@ -33,7 +33,10 @@ try:
     for f in TEMP_DIR.glob("*"):
         if now - f.stat().st_mtime > 3600:  # Delete if older than 1 hour
             try:
-                f.unlink()
+                if f.is_file():
+                    f.unlink()
+                elif f.is_dir():
+                    shutil.rmtree(f)
             except Exception as e:
                 logger.warning(f"Could not delete {f}: {e}")
 except Exception as e:
@@ -121,23 +124,21 @@ def show_db_config_section():
     with st.sidebar.expander("⚙️ Database Settings", expanded=True):
         default_db_path = st.session_state.get('db_path_input', "data/db/importer_pro.db")
         db_path_input = st.text_input(
-            "Database File Path:", # Changed label slightly
+            "Database File Path:",
             value=default_db_path,
             key="db_path_widget",
             help="Path to the SQLite database file (e.g., data/my_imports.db). Will be created if it doesn't exist."
         )
-        st.session_state['db_path_input'] = db_path_input # Store user input
+        st.session_state['db_path_input'] = db_path_input
 
-        db_manager = None # Initialize
-        if db_path_input: # Only attempt connection if path is provided
-            db_manager = get_db_manager(db_path_input)
+        db_manager = None
+        if db_path_input:
+            db_manager = get_db_manager(db_path_input) # This uses the cached resource
         else:
             st.info("Enter a database path to connect.")
 
-
         if db_manager and db_manager.connection:
              st.success(f"Connected: `{db_manager.db_path.name}`")
-             # Display Tables
              try:
                  cursor = db_manager.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;")
                  if cursor:
@@ -152,10 +153,34 @@ def show_db_config_section():
              except Exception as e:
                   st.warning(f"Could not list tables: {e}")
                   logger.exception("Error fetching table list:")
-        elif db_path_input: # Only show error if user entered something and connection failed
+
+             # --- Add Download Button for the Database File ---
+             db_file_to_download = Path(db_manager.db_path).resolve() # Get path from the connected manager
+             if db_file_to_download.exists() and db_file_to_download.is_file():
+                 try:
+                     # Ensure the DatabaseManager's connection is closed before reading,
+                     # to flush all data to disk. The cache_resource should handle this on session end,
+                     # but for an explicit download, this can be tricky if the file is actively used.
+                     # A simple read might be okay if commits are frequent and WAL mode is not an issue.
+                     # Forcing a close on the cached resource is not straightforward from here.
+                     # Best effort: Read the file as is. Most recent commits should be there.
+                     with open(db_file_to_download, "rb") as fp:
+                         st.download_button(
+                             label="💾 Download Database File",
+                             data=fp, # Pass the file object
+                             file_name=db_file_to_download.name,
+                             mime="application/vnd.sqlite3" # Standard MIME for SQLite
+                         )
+                 except Exception as e:
+                     st.error(f"Error preparing DB for download: {e}")
+                     logger.error(f"Error reading database file for download {db_file_to_download}: {e}")
+             else:
+                 st.caption("Database file does not exist yet. Import data to create it.")
+
+        elif db_path_input:
             st.error("Connection Failed. Check path and permissions.")
 
-    return db_manager # Return the manager instance (or None)
+    return db_manager
 
 def show_upload_section():
     """UI for File Upload."""
