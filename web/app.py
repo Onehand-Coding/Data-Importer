@@ -21,8 +21,9 @@ from core.database import DatabaseManager
 from core.importers.base_importer import BaseImporter, ImportResult
 from core.importers import AVAILABLE_IMPORTERS, CSVImporter
 
-# --- Configure Logging ---
+# --- Configure logging---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 TEMP_DIR = ROOT_DIR / "data" / "temp_uploads"
 # Only clean up files older than 1 hour
@@ -34,9 +35,9 @@ try:
             try:
                 f.unlink()
             except Exception as e:
-                logging.warning(f"Could not delete {f}: {e}")
+                logger.warning(f"Could not delete {f}: {e}")
 except Exception as e:
-    logging.error(f"Temp dir setup failed: {e}")
+    logger.error(f"Temp dir setup failed: {e}")
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -52,16 +53,16 @@ def get_importer_for_file(file_path: Path, db_manager: DatabaseManager) -> Optio
     extension = file_path.suffix.lower()
     importer_class = AVAILABLE_IMPORTERS.get(extension) # Use registry from __init__
     if importer_class:
-        logging.info(f"Found importer {importer_class.__name__} for extension '{extension}'")
+        logger.info(f"Found importer {importer_class.__name__} for extension '{extension}'")
         try:
             return importer_class(db_manager)
         except Exception as e:
-            logging.exception(f"Failed to instantiate importer {importer_class.__name__}")
+            logger.exception(f"Failed to instantiate importer {importer_class.__name__}")
             st.error(f"Error initializing importer for {extension} files: {e}")
             return None
     else:
         st.error(f"Unsupported file type: '{extension}'. No importer found.")
-        logging.warning(f"No importer registered for file extension: {extension}")
+        logger.warning(f"No importer registered for file extension: {extension}")
         return None
 
 # --- Helper Functions ---
@@ -76,10 +77,10 @@ def sanitize_name(name):
 @st.cache_resource # Cache the DB manager per session based on path
 def get_db_manager(db_path_input) -> Optional[DatabaseManager]:
     """Gets or initializes the DatabaseManager, cached."""
-    logging.info(f"Requesting DB Manager for path: {db_path_input}")
+    logger.info(f"Requesting DB Manager for path: {db_path_input}")
     # Ensure the input path is resolved to a string for caching consistency
     if not db_path_input or not isinstance(db_path_input, (str, Path)):
-         logging.error(f"Invalid db_path_input type or value: {db_path_input}")
+         logger.error(f"Invalid db_path_input type or value: {db_path_input}")
          st.error("Invalid database path provided.")
          return None
 
@@ -89,7 +90,7 @@ def get_db_manager(db_path_input) -> Optional[DatabaseManager]:
     db_folder = resolved_path.parent
     try:
         db_folder.mkdir(parents=True, exist_ok=True)
-        logging.info(f"Ensured database directory exists: {db_folder}")
+        logger.info(f"Ensured database directory exists: {db_folder}")
     except Exception as e:
         st.warning(f"Could not create directory {db_folder}: {e}. Check permissions.")
         # Proceed anyway, connection might still work if dir exists
@@ -101,7 +102,7 @@ def get_db_manager(db_path_input) -> Optional[DatabaseManager]:
         # db_manager.close() # Ensure closed on failure
         return None # Return None to signal failure
 
-    logging.info(f"DB Manager connection successful for: {db_manager.db_path}")
+    logger.info(f"DB Manager connection successful for: {db_manager.db_path}")
     # No need to manually close here if using cache_resource properly,
     # but ensure __exit__ in DatabaseManager handles cleanup if needed.
     return db_manager
@@ -150,7 +151,7 @@ def show_db_config_section():
                       st.warning("Could not retrieve table list (cursor error).")
              except Exception as e:
                   st.warning(f"Could not list tables: {e}")
-                  logging.exception("Error fetching table list:")
+                  logger.exception("Error fetching table list:")
         elif db_path_input: # Only show error if user entered something and connection failed
             st.error("Connection Failed. Check path and permissions.")
 
@@ -188,11 +189,11 @@ def show_upload_section():
                 st.session_state.pop('column_mapping_state', None)
                 st.session_state.pop('target_table_name_input', None) # Reset table name suggestion
                 st.session_state.pop('last_import_results', None) # Clear previous results
-                logging.info(f"New file uploaded: {uploaded_file.name}. Cleared dependent state.")
+                logger.info(f"New file uploaded: {uploaded_file.name}. Cleared dependent state.")
                 st.success(f"File `{uploaded_file.name}` selected ({uploaded_file.size} bytes).")
         # If uploader becomes None (file removed), clear the state
         elif uploaded_file is None and 'uploaded_file_info' in st.session_state:
-             logging.info("Uploaded file removed by user. Clearing state.")
+             logger.info("Uploaded file removed by user. Clearing state.")
              old_file_name = st.session_state.get('uploaded_file_info',{}).get('name')
              st.session_state.pop('uploaded_file_info', None)
              st.session_state.pop('temp_file_path', None)
@@ -217,11 +218,11 @@ def get_temporary_filepath(_file_content_bytes: bytes, original_filename: str) -
 
         with open(temp_path, "wb") as f:
             f.write(_file_content_bytes)
-        logging.info(f"File content cached to temporary path: {temp_path}")
+        logger.info(f"File content cached to temporary path: {temp_path}")
         return temp_path
     except Exception as e:
         st.error(f"Failed to create temporary file: {e}")
-        logging.exception("Error creating temporary file:")
+        logger.exception("Error creating temporary file:")
         return None
 
 # --- Header Caching ---
@@ -229,14 +230,14 @@ def get_temporary_filepath(_file_content_bytes: bytes, original_filename: str) -
 @st.cache_data(show_spinner=False)
 def get_cached_headers(_importer: BaseImporter, _file_path: Path) -> List[str]:
     """Gets headers using the importer, cached based on file path."""
-    logging.info(f"Cache miss or first call: Reading headers for {_file_path.name} using {_importer.__class__.__name__}")
+    logger.info(f"Cache miss or first call: Reading headers for {_file_path.name} using {_importer.__class__.__name__}")
     try:
         headers = _importer.get_headers(_file_path)
-        logging.info(f"Successfully read headers for {_file_path.name}: {headers}")
+        logger.info(f"Successfully read headers for {_file_path.name}: {headers}")
         return headers
     except Exception as e:
         st.error(f"Could not read headers from file: {e}")
-        logging.exception(f"Error reading file headers in get_cached_headers for {_file_path}:")
+        logger.exception(f"Error reading file headers in get_cached_headers for {_file_path}:")
         # Return empty list on error to prevent breaking downstream UI, error is shown
         return []
 
@@ -260,7 +261,7 @@ def show_config_import_section(db_manager: DatabaseManager, importer: BaseImport
         # Update session state ONLY if the input changes
         if table_name_input != st.session_state.get('target_table_name_input', default_table_name):
             st.session_state['target_table_name_input'] = table_name_input
-            logging.debug(f"Table name input changed to: {table_name_input}")
+            logger.debug(f"Table name input changed to: {table_name_input}")
 
         final_table_name = sanitize_name(table_name_input)
 
@@ -285,7 +286,7 @@ def show_config_import_section(db_manager: DatabaseManager, importer: BaseImport
                 return None, None, None
         except Exception as e:
             st.error(f"Error reading headers: {e}")
-            logging.exception("Error reading headers:")
+            logger.exception("Error reading headers:")
             return None, None, None
 
         # Create a grid layout for column mapping
@@ -299,7 +300,7 @@ def show_config_import_section(db_manager: DatabaseManager, importer: BaseImport
 
         # Reset mapping state if headers changed
         if headers != st.session_state.get('last_headers', []):
-            logging.info(f"Headers changed or first load for {file_path.name}. Resetting column mapping state.")
+            logger.info(f"Headers changed or first load for {file_path.name}. Resetting column mapping state.")
             st.session_state['last_headers'] = headers
             st.session_state['column_mapping_state'] = {}
 
@@ -419,7 +420,7 @@ def show_preview_section(importer: BaseImporter, file_path: Path, final_mapping:
 
         except Exception as e:
             st.error(f"Could not generate preview: {e}")
-            logging.exception("Error during preview generation:")
+            logger.exception("Error during preview generation:")
 
 
 def show_import_action_section(db_manager: DatabaseManager, importer: BaseImporter, file_path: Path, table_name: str, mapping: Mapping[str, str], schema: Dict[str, str]):
@@ -443,24 +444,24 @@ def show_import_action_section(db_manager: DatabaseManager, importer: BaseImport
                  # 1. Ensure table exists
                  table_ok = False
                  try:
-                     logging.info(f"Ensuring table '{table_name}' exists with schema: {schema}")
+                     logger.info(f"Ensuring table '{table_name}' exists with schema: {schema}")
                      # Pass the derived schema to the DB manager
                      table_ok = db_manager.create_dynamic_table(table_name, schema)
                      if table_ok:
-                          logging.info(f"Table '{table_name}' created or verified successfully.")
+                          logger.info(f"Table '{table_name}' created or verified successfully.")
                      else:
                           st.error(f"Failed to create or verify table '{table_name}'. Import cancelled. Check logs.")
-                          logging.error(f"create_dynamic_table returned False for table {table_name}")
+                          logger.error(f"create_dynamic_table returned False for table {table_name}")
                           st.session_state['last_import_results'] = {'errors': [{'error': f'Table creation/verification failed for {table_name}.', 'row':'N/A', 'data':''}]}
 
                  except Exception as e:
                       st.error(f"Error preparing table '{table_name}': {e}")
-                      logging.exception("Error during create_dynamic_table in import action:")
+                      logger.exception("Error during create_dynamic_table in import action:")
                       st.session_state['last_import_results'] = {'errors': [{'error': f'Error preparing table {table_name}: {e}', 'row':'N/A', 'data':''}]}
 
                  # 2. Run import only if table is ready
                  if table_ok:
-                      logging.info(f"Table '{table_name}' OK, proceeding with import.")
+                      logger.info(f"Table '{table_name}' OK, proceeding with import.")
                       try:
                            # Prepare schema_info for validation (extract required/unique fields)
                            # Example: Mark email as unique if present
@@ -468,7 +469,7 @@ def show_import_action_section(db_manager: DatabaseManager, importer: BaseImport
                            # Example: Could add logic here to determine required fields if needed
                            required_fields = [] # Currently no UI to set required fields
                            schema_info_for_validation = {'required': required_fields, 'unique': unique_fields}
-                           logging.debug(f"Schema info for validation: {schema_info_for_validation}")
+                           logger.debug(f"Schema info for validation: {schema_info_for_validation}")
 
                            # Call the main processing method of the importer
                            import_result_obj: ImportResult = importer.process_import(
@@ -476,11 +477,11 @@ def show_import_action_section(db_manager: DatabaseManager, importer: BaseImport
                            )
                            results_dict = import_result_obj.to_dict() # Convert result object to dict for display/storage
                            st.session_state['last_import_results'] = results_dict # Store results dict
-                           logging.info(f"Import process finished for table '{table_name}'. Results: {results_dict}")
+                           logger.info(f"Import process finished for table '{table_name}'. Results: {results_dict}")
                            st.success(f"Import process finished for table '{table_name}'.")
                       except Exception as e:
                            st.error(f"Import failed: {e}")
-                           logging.exception(f"Error during importer.process_import for table {table_name}")
+                           logger.exception(f"Error during importer.process_import for table {table_name}")
                            # Store error state clearly
                            st.session_state['last_import_results'] = {
                                'total': 0, 'inserted': 0, 'skipped': 'N/A', # Indicate failure state
@@ -536,7 +537,7 @@ def show_results_section():
                            )
                       except Exception as e:
                            st.error(f"Could not display or prepare error report: {e}")
-                           logging.exception("Error processing errors for display/download:")
+                           logger.exception("Error processing errors for display/download:")
             elif inserted > 0: # If no errors but rows were inserted
                 st.info("No errors reported during the last import.")
 
@@ -564,7 +565,7 @@ def main():
              temp_file_path = get_temporary_filepath(file_content, file_name)
         else:
             # This case might happen on refresh if state handling isn't perfect
-            logging.warning("File content or name missing from session state. Requesting re-upload.")
+            logger.warning("File content or name missing from session state. Requesting re-upload.")
             st.warning("File information missing. Please re-upload the file.")
             # Clear potentially inconsistent state
             st.session_state.pop('uploaded_file_info', None)
@@ -597,7 +598,7 @@ def main():
              st.error("Failed to process uploaded file. Please try again.")
         else: # Path returned but doesn't exist (cache issue?)
              st.error("Temporary file path is invalid. Please re-upload the file.")
-             logging.error(f"Temporary file path {temp_file_path} does not exist.")
+             logger.error(f"Temporary file path {temp_file_path} does not exist.")
 
 
     elif db_manager and not uploaded_file_info:

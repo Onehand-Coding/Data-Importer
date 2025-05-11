@@ -1,13 +1,15 @@
+# Content for: core/importers/base_importer.py
+import sqlite3
 import json
 import logging
-import sqlite3
+import re
 from pathlib import Path
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple, Any, Mapping, Optional, Generator
 
 import pandas as pd
+from core.database import DatabaseManager # Ensure this path is correct
 
-# Configure logging for this module
 logger = logging.getLogger(__name__)
 
 class ImportResult:
@@ -19,242 +21,211 @@ class ImportResult:
         self.errors: List[Dict[str, Any]] = []
 
     def add_error(self, row_number: Optional[int], error: str, data_snippet: Optional[str] = None):
-        """Adds an error entry."""
+        """Adds an error to the import results."""
+        row_display = str(row_number) if row_number is not None else "Unknown"
         error_entry = {
-            'row': row_number if row_number is not None and row_number > 0 else ('Header/File' if row_number == 0 else 'Unknown'),
+            'row': row_display,
             'error': error,
             'data': data_snippet or "{}"
         }
         self.errors.append(error_entry)
-        logger.warning(f"Import Error [Row: {error_entry['row']}]: {error} - Data: {data_snippet}")
+        logger.warning(f"Import Error [Row: {row_display}]: {error} - Data: {data_snippet}")
 
     def to_dict(self) -> Dict[str, Any]:
         """Converts results to a dictionary."""
         return {
-            'total': self.total_rows_processed,
-            'inserted': self.rows_inserted,
-            'skipped': self.rows_skipped,
-            'errors': self.errors
+            "total": self.total_rows_processed,
+            "inserted": self.rows_inserted,
+            "skipped": self.rows_skipped,
+            "errors": self.errors
         }
 
 class BaseImporter(ABC):
-    """
-    Abstract base class for data importers.
-    Defines the interface for reading, validating, and importing data.
-    """
-    # Define common supported file extensions for importers inheriting from this
-    SUPPORTED_EXTENSIONS: List[str] = []
-
-    def __init__(self, db_manager):
+    def __init__(self, db_manager: DatabaseManager):
         if db_manager is None:
             raise ValueError("DatabaseManager instance is required.")
         self.db_manager = db_manager
+        self.column_mapping: Mapping[str, str] = {}
+        self.schema_info: Dict[str, Any] = {}
         logger.info(f"{self.__class__.__name__} initialized.")
 
     @abstractmethod
     def get_headers(self, file_path: Path) -> List[str]:
-        """
-        Reads the source file and returns a list of header strings.
-        Raises Exception on failure (e.g., file not found, format error).
-        """
         pass
 
     @abstractmethod
     def get_preview(self, file_path: Path, num_rows: int = 5) -> pd.DataFrame:
-        """
-        Reads the first few rows of the source file for preview.
-        Should return raw data before mapping.
-        Raises Exception on failure.
-        """
         pass
 
     @abstractmethod
     def read_data(self, file_path: Path) -> Generator[Dict[str, Any], None, None]:
-        """
-        Reads the source file row by row and yields a dictionary
-        representing the raw data for each row (keys are original headers).
-        Raises Exception on failure.
-        """
         pass
 
-    # --- Data Processing & Validation (Can have default implementations) ---
+    def set_column_mapping(self, column_mapping: Mapping[str, str]):
+        self.column_mapping = column_mapping
+        logger.debug(f"Column mapping set for importer: {self.column_mapping}")
 
-    def map_row(self, raw_row: Dict[str, Any], column_mapping: Mapping[str, str]) -> Dict[str, Any]:
-        """
-        Transforms a raw data row into a target data row based on mapping.
-        Keys in the returned dict are the target database field names.
-        Args:
-            raw_row: Dict with keys as original source headers.
-            column_mapping: Dict mapping {target_db_field: source_csv_header}.
-        """
+    def set_table_schema_info(self, schema_info: Dict[str, Any]):
+        self.schema_info = schema_info
+        logger.debug(f"Table schema info set for importer: {self.schema_info}")
+
+    def _map_row(self, raw_row: Dict[str, Any]) -> Dict[str, Any]:
         target_data = {}
-        for db_field, source_header in column_mapping.items():
-            if source_header in raw_row:
-                value = raw_row[source_header]
-                # Basic cleaning (can be overridden by subclasses)
-                target_data[db_field] = value.strip() if isinstance(value, str) else value
+        for db_field, source_header in self.column_mapping.items():
+            value = raw_row.get(source_header)
+
+            if value is not None:
+                stripped_value = value.strip() if isinstance(value, str) else value
+                # Convert empty string after strip to None, otherwise use stripped_value
+                target_data[db_field] = None if isinstance(stripped_value, str) and not stripped_value else stripped_value
             else:
-                # Handle case where expected source header isn't in the raw row
-                logger.warning(f"Mapped source header '{source_header}' not found in raw row. Setting target field '{db_field}' to None.")
+                logger.debug(f"Source header '{source_header}' for DB field '{db_field}' not found in raw row or value is None. Setting to None.")
                 target_data[db_field] = None
         return target_data
 
-    def validate_mapped_row(self, mapped_row: Dict[str, Any], row_number: Optional[int], schema_info: Optional[Dict] = None) -> Tuple[bool, List[str]]:
-        """
-        Validates a single row *after* it has been mapped to target DB fields.
-        Can be overridden by subclasses for format-specific validation.
-        Args:
-            mapped_row: Dict with keys as target DB field names.
-            row_number: Original row number for context.
-            schema_info: Optional dictionary containing schema details (e.g., required fields, types)
-        Returns:
-            Tuple (is_valid: bool, error_messages: List[str])
-        """
-        # Basic Example Validation (can be made more sophisticated)
-        errors = []
-        required = schema_info.get('required', []) if schema_info else [] # Example: Get required fields from schema info
-        unique_fields = schema_info.get('unique', []) if schema_info else [] # Example: Get unique fields
+    def _format_data_snippet(self, data_row: Optional[Dict[str, Any]], max_len: int = 100) -> str:
+        if data_row is None:
+            return "{}"
+        try:
+            serializable_data = {k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v for k, v in data_row.items()}
+            snippet = json.dumps(serializable_data)
+        except TypeError:
+            snippet = json.dumps({k: str(v) for k, v in data_row.items()})
 
-        for field in required:
-            if field not in mapped_row or not mapped_row.get(field):
-                errors.append(f"Required field '{field.capitalize()}' is missing or empty.")
+        if len(snippet) > max_len:
+            return snippet[:max_len-3] + "..."
+        return snippet
 
-        # Basic email check if 'email' is a target field
-        email_field = next((f for f in mapped_row if 'email' in f.lower()), None)
-        if email_field and mapped_row.get(email_field):
-            email_str = str(mapped_row[email_field])
-            if '@' not in email_str or '.' not in email_str.split('@')[-1]:
-                 errors.append(f"Invalid format for field '{email_field.capitalize()}': '{email_str}'")
+    def _format_integrity_error(self, e: sqlite3.IntegrityError, schema_info_for_validation: Dict) -> str:
+        msg = str(e)
+        unique_match = re.search(r"UNIQUE constraint failed: \w+\.(.*)", msg, re.IGNORECASE)
+        if unique_match:
+            column_name_from_error = unique_match.group(1)
+            sanitized_db_field = self.db_manager.sanitize_name(column_name_from_error)
+            original_column_name = next((sh for db_f, sh in self.column_mapping.items() if db_f == sanitized_db_field), sanitized_db_field)
+            return f"Skipped: Duplicate value for '{original_column_name}'."
 
-        # Future: Add more validation based on schema_info (types, lengths, etc.)
-        return len(errors) == 0, errors
+        not_null_match = re.search(r"NOT NULL constraint failed: \w+\.(.*)", msg, re.IGNORECASE)
+        if not_null_match:
+            column_name_from_error = not_null_match.group(1)
+            sanitized_db_field = self.db_manager.sanitize_name(column_name_from_error)
+            original_column_name = next((sh for db_f, sh in self.column_mapping.items() if db_f == sanitized_db_field), sanitized_db_field)
+            return f"Skipped: Required field '{original_column_name}' is missing."
 
+        return f"Skipped: Data integrity issue - {msg}"
 
-    # --- Database Interaction (Should rely on DatabaseManager) ---
+    def validate_mapped_row(self, mapped_row: Dict[str, Any], row_number: Optional[int], schema_info_for_validation: Dict[str, Any]) -> Tuple[bool, List[str]]:
+        is_valid = True
+        errors: List[str] = []
 
-    def insert_data(self, table_name: str, data_to_insert: Dict[str, Any], result: ImportResult) -> bool:
-        """
-        Inserts a single row of mapped data into the specified database table.
-        Args:
-            table_name: Target database table name.
-            data_to_insert: Dict with keys as target DB field names and values to insert.
-            result: ImportResult object to log errors to.
-        Returns:
-            True if insertion was successful, False otherwise.
-        """
+        required_fields = schema_info_for_validation.get('required', [])
+
+        for db_field_name, value in mapped_row.items():
+            original_header_name = next((sh for db_f, sh in self.column_mapping.items() if db_f == db_field_name), db_field_name)
+
+            if db_field_name in required_fields:
+                if value is None: # Checks for None, which now includes previously empty strings
+                    errors.append(f"Required field '{original_header_name}' is missing or empty.")
+                    is_valid = False
+
+            column_specific_schema_details = self.schema_info.get(db_field_name, {})
+            is_email_field = column_specific_schema_details.get('is_email', False)
+            if not is_email_field and "email" in db_field_name.lower():
+                 is_email_field = True
+
+            if is_email_field:
+                if value and isinstance(value, str) and not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", value):
+                    errors.append(f"Invalid format for field '{original_header_name}': '{value}'.")
+                    is_valid = False
+        return is_valid, errors
+
+    def _insert_data(self, sanitized_table_name: str, data_to_insert: Dict[str, Any], result: ImportResult, row_number: Optional[int]) -> bool:
         if not data_to_insert:
-            result.add_error(None, "Skipping insert: No data provided for row.", "{}")
+            result.add_error(row_number, "No data to insert (empty mapped row).", None)
             return False
 
-        # Sanitize table and column names (assuming db_manager has sanitize_name)
-        sanitized_table_name = self.db_manager.sanitize_name(table_name)
-        cols_to_insert = list(data_to_insert.keys())
-        sanitized_cols = [self.db_manager.sanitize_name(col) for col in cols_to_insert]
-
-        if None in sanitized_cols:
-            invalid_original = [orig for orig, san in zip(cols_to_insert, sanitized_cols) if san is None]
-            result.add_error(None, f"Skipping insert: Invalid column name(s) after sanitization: {invalid_original}", str(data_to_insert))
-            return False
-        if not sanitized_cols:
-            result.add_error(None, "Skipping insert: No valid columns to insert.", str(data_to_insert))
-            return False
-
-        column_names = ', '.join([f'"{col}"' for col in sanitized_cols])
-        placeholders = ', '.join(['?'] * len(sanitized_cols))
-        sql = f"INSERT INTO \"{sanitized_table_name}\" ({column_names}) VALUES ({placeholders})"
-        params = tuple(data_to_insert[original_col] for original_col in cols_to_insert)
+        columns = ', '.join(f'"{col}"' for col in data_to_insert.keys())
+        placeholders = ', '.join(['?'] * len(data_to_insert))
+        query = f'INSERT INTO "{sanitized_table_name}" ({columns}) VALUES ({placeholders})'
 
         try:
-            cursor = self.db_manager.execute(sql, params, commit=True)
-            if cursor is not None:
+            cursor = self.db_manager.execute(query, tuple(data_to_insert.values()), commit=True)
+            if cursor:
+                result.rows_inserted += 1
                 return True
             else:
-                # Error logged by db_manager.execute, log context here
-                result.add_error(None, "Database insert execution failed (check logs).", self._format_data_snippet(data_to_insert))
+                result.add_error(row_number, "DB insert failed (no cursor/unknown reason after execute).", self._format_data_snippet(data_to_insert))
                 return False
-        # Use the imported sqlite3 module here
-        except sqlite3.IntegrityError as e:
-            error_msg = self._format_integrity_error(e, cols_to_insert, sanitized_cols)
-            result.add_error(None, error_msg, self._format_data_snippet(data_to_insert))
+        except sqlite3.IntegrityError as ie:
+            logger.warning(f"Integrity error for table {sanitized_table_name} on row {row_number}: {ie} - Data: {data_to_insert}")
+            # Use schema_info_for_validation passed to process_import, or self.schema_info if more appropriate context needed by _format_integrity_error
+            error_msg = self._format_integrity_error(ie, self.schema_info)
+            result.add_error(row_number, error_msg, self._format_data_snippet(data_to_insert))
             return False
         except Exception as e:
-            logger.exception(f"Unexpected database insert error for table {sanitized_table_name}: {e}")
-            result.add_error(None, f"Unexpected DB Insert Error: {str(e)}", self._format_data_snippet(data_to_insert))
+            logger.exception(f"Unexpected database insert error for table {sanitized_table_name} on row {row_number}: {e}")
+            result.add_error(row_number, f"Unexpected DB Insert Error: {str(e)}", self._format_data_snippet(data_to_insert))
             return False
 
-    # --- Helper methods ---
-    def _format_data_snippet(self, data: Dict[str, Any], max_len: int = 250) -> str:
-        """Safely formats data dict to a truncated string for logging."""
-        try:
-            data_str = json.dumps(data)
-            if len(data_str) > max_len:
-                return data_str[:max_len - 3] + '...'
-            return data_str
-        except Exception:
-            return "[Data serialization error]"
-
-    # Use the imported sqlite3 module here for type hint
-    def _format_integrity_error(self, error: sqlite3.IntegrityError, original_cols: List[str], sanitized_cols: List[str]) -> str:
-        """Formats IntegrityError messages more nicely."""
-        error_str = str(error)
-        if 'UNIQUE constraint failed' in error_str:
-            try:
-                # Format: "UNIQUE constraint failed: table_name.column_name"
-                failed_sanitized_column = error_str.split('.')[-1]
-                # Find original name corresponding to sanitized name
-                original_field = next((orig for orig, san in zip(original_cols, sanitized_cols) if san == failed_sanitized_column), failed_sanitized_column)
-                return f"Skipped: Duplicate value for '{original_field}'."
-            except Exception:
-                 return "Skipped: Duplicate value constraint failed." # Fallback
-        elif 'NOT NULL constraint failed' in error_str:
-             try:
-                failed_sanitized_column = error_str.split('.')[-1]
-                original_field = next((orig for orig, san in zip(original_cols, sanitized_cols) if san == failed_sanitized_column), failed_sanitized_column)
-                return f"Skipped: Missing value for required field '{original_field}'."
-             except Exception:
-                 return "Skipped: Missing value for required field." # Fallback
-        else:
-             return f"Skipped: Database Integrity Error - {error_str}"
-
-
-    # --- Main Processing Logic ---
-    def process_import(self, file_path: Path, table_name: str, column_mapping: Mapping[str, str], schema_info: Optional[Dict] = None) -> ImportResult:
-        """
-        Orchestrates the import process: read, map, validate, insert.
-        """
+    def process_import(self, file_path: Path, table_name: str, column_mapping: Mapping[str, str], schema_info_for_validation: Dict[str, Any]) -> ImportResult:
         results = ImportResult()
-        row_number = 1 # Start with 1 for header row (data starts row 2)
+        self.set_column_mapping(column_mapping)
+        # self.schema_info (full schema) should be set by app logic if detailed validation rules are needed beyond schema_info_for_validation
+        # For now, validate_mapped_row primarily uses schema_info_for_validation and infers some things like email from field names or explicit self.schema_info flags.
+
+        sanitized_table_name = self.db_manager.sanitize_name(table_name)
+        if not sanitized_table_name:
+            results.add_error(0, f"Invalid table name provided: '{table_name}'")
+            return results
+
         try:
-            for raw_row in self.read_data(file_path):
-                row_number += 1
+            for row_number, raw_row in enumerate(self.read_data(file_path), 1):
                 results.total_rows_processed += 1
+                logger.debug(f"Raw row {row_number}: {raw_row}")
+
                 try:
-                    # 1. Map raw data to target structure
-                    mapped_data = self.map_row(raw_row, column_mapping)
+                    mapped_row = self._map_row(raw_row) # This now converts empty strings to None
+                    logger.debug(f"Mapped row {row_number}: {mapped_row}")
 
-                    # 2. Validate the mapped data
-                    is_valid, errors = self.validate_mapped_row(mapped_data, row_number, schema_info)
-                    if not is_valid:
-                        for error in errors:
-                            results.add_error(row_number, error, self._format_data_snippet(raw_row))
+                    is_empty_after_map = all(v is None for v in mapped_row.values())
+                    if not mapped_row or is_empty_after_map:
+                        logger.warning(f"Row {row_number} resulted in empty mapped data. Skipping.")
+                        results.add_error(row_number, "Row is empty after mapping or source row was effectively empty.", self._format_data_snippet(raw_row))
                         results.rows_skipped += 1
-                        continue # Skip this row
+                        continue
 
-                    # 3. Insert into database
-                    if self.insert_data(table_name, mapped_data, results):
-                        results.rows_inserted += 1
+                    # Pass schema_info_for_validation, which contains 'required', 'unique' lists
+                    is_valid, validation_errors = self.validate_mapped_row(mapped_row, row_number, schema_info_for_validation)
+
+                    if is_valid:
+                        if not self._insert_data(sanitized_table_name, mapped_row, results, row_number):
+                            results.rows_skipped += 1
                     else:
-                        # Error logged within insert_data
+                        results.add_error(row_number, "; ".join(validation_errors), self._format_data_snippet(mapped_row))
                         results.rows_skipped += 1
 
                 except Exception as row_err:
-                    logger.exception(f"Unexpected error processing row {row_number}: {row_err}")
+                    logger.exception(f"Unexpected error processing data for row {row_number}: {row_err}")
                     results.add_error(row_number, f"Unexpected row processing error: {str(row_err)}", self._format_data_snippet(raw_row))
                     results.rows_skipped += 1
 
+            if self.db_manager.connection and self.db_manager.connection.in_transaction:
+                logger.info("Committing final transaction for batch import.")
+                try:
+                    self.db_manager.connection.commit()
+                except sqlite3.Error as e:
+                    logger.error(f"Final commit failed: {e}. Attempting rollback.")
+                    try:
+                        self.db_manager.connection.rollback()
+                    except Exception as rb_e: # pragma: no cover
+                        logger.error(f"Rollback attempt also failed: {rb_e}")
+                    results.add_error(None, f"Database commit error at end of import: {e}")
+
+        except ValueError as ve:
+             logger.exception(f"ValueError during file processing {file_path}: {ve}")
+             results.add_error(0, f"Error processing file: {str(ve)}")
         except Exception as file_err:
-             logger.exception(f"Failed to read or process file {file_path}: {file_err}")
-             results.add_error(0, f"Failed to read file: {str(file_err)}")
-             # No rows processed if file read fails early
+            logger.exception(f"General failure to read or process file {file_path}: {file_err}")
+            results.add_error(0, f"Failed to read or process file: {str(file_err)}")
 
         return results

@@ -1,14 +1,13 @@
 from .base_importer import BaseImporter, ImportResult
 from .csv_importer import CSVImporter
 from .json_importer import JSONImporter
-
-# Future: from .excel_importer import ExcelImporter
+from .excel_importer import ExcelImporter
 
 # Define which importers are available via the factory
 AVAILABLE_IMPORTERS = {
     '.csv': CSVImporter,
     '.json': JSONImporter,
-    # '.xlsx': ExcelImporter, # Example for future
+    '.xlsx': ExcelImporter,
 }
 
 __all__ = [
@@ -16,6 +15,6 @@ __all__ = [
     'ImportResult',
     'CSVImporter',
     'JSONImporter',
-    # 'ExcelImporter',
+    'ExcelImporter',
     'AVAILABLE_IMPORTERS'
     ]

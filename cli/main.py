@@ -8,21 +8,23 @@ sys.path.insert(0, str(ROOT_DIR))
 import re
 import logging
 import argparse
-from pathlib import Path
 from typing import Optional, Dict, Type
 
 from core.database import DatabaseManager
 from core.importers.base_importer import BaseImporter, ImportResult
 from core.importers.csv_importer import CSVImporter
 from core.importers.json_importer import JSONImporter
+from core.importers.excel_importer import ExcelImporter
 
 # --- Configure Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# --- Importer Factory (Simplified for CLI) ---
+# --- Importer Factory (Updated for CLI) ---
 IMPORTER_REGISTRY: Dict[str, Type[BaseImporter]] = {
     '.csv': CSVImporter,
     '.json': JSONImporter,
+    '.xlsx': ExcelImporter, # <-- Add ExcelImporter here
 }
 
 def get_importer_for_file(file_path: Path, db_manager: DatabaseManager) -> Optional[BaseImporter]:
@@ -30,16 +32,16 @@ def get_importer_for_file(file_path: Path, db_manager: DatabaseManager) -> Optio
     extension = file_path.suffix.lower()
     importer_class = IMPORTER_REGISTRY.get(extension)
     if importer_class:
-        logging.info(f"Using importer {importer_class.__name__} for extension '{extension}'")
+        logger.info(f"Using importer {importer_class.__name__} for extension '{extension}'")
         try:
             return importer_class(db_manager)
         except Exception as e:
-            logging.exception(f"Failed to instantiate importer {importer_class.__name__}")
+            logger.exception(f"Failed to instantiate importer {importer_class.__name__}")
             print(f"Error initializing importer for {extension} files: {e}")
             return None
     else:
         print(f"Error: Unsupported file type: '{extension}'. No importer found.")
-        logging.warning(f"No importer registered for file extension: {extension}")
+        logger.warning(f"No importer registered for file extension: {extension}")
         return None
 
 def sanitize_name(name):
@@ -64,7 +66,7 @@ def print_results(results: ImportResult):
             err_msg = error.get('error', 'No error message')
             data_snip = error.get('data', '{}')
             print(f"  Row {row_info}: {err_msg}")
-            print(f"     Data: {data_snip}")
+            print(f"    Data: {data_snip}")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -72,7 +74,7 @@ def main():
     )
     parser.add_argument(
         "input_file",
-        help="Path to the input file (e.g., data.csv)"
+        help="Path to the input file (e.g., data.csv, data.json, data.xlsx)" # <-- Updated help text
     )
     parser.add_argument(
         "-t", "--table",
@@ -93,7 +95,8 @@ def main():
     args = parser.parse_args()
 
     if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.DEBUG) # Set root logger to DEBUG
+        logger.setLevel(logging.DEBUG) # Also ensure our specific logger is DEBUG
 
     file_path = Path(args.input_file)
     if not file_path.exists():
@@ -105,18 +108,31 @@ def main():
         print(f"Supported types are: {', '.join(IMPORTER_REGISTRY.keys())}")
         return
 
-    db_path = args.database
+    db_path_str = args.database
+    # Ensure the parent directory for the database exists
+    db_parent_dir = Path(db_path_str).resolve().parent
+    try:
+        db_parent_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Ensured database directory exists: {db_parent_dir}")
+    except Exception as e:
+        # Log warning but proceed, DatabaseManager might handle creation or it might be an in-memory DB.
+        logger.warning(f"Could not create directory {db_parent_dir} for database. Error: {e}")
+
+
     target_table_name = args.table or sanitize_name(file_path.stem)
     if not target_table_name:
         print(f"Error: Could not determine a valid table name from filename '{file_path.name}'. Use --table option.")
         return
 
-    print(f"Starting import from '{file_path.name}' into table '{target_table_name}' in database '{db_path}'")
+    print(f"Starting import from '{file_path.name}' into table '{target_table_name}' in database '{db_path_str}'")
 
-    # Use DatabaseManager context
     try:
-        with DatabaseManager(db_path) as db:
-            # Get the correct importer
+        with DatabaseManager(db_path_str) as db: # Use context manager
+            if not db.connection: # Check if connection was successful within DatabaseManager
+                # Error would have been printed by DatabaseManager or get_db_manager if it failed
+                print(f"Error: Could not establish database connection to {db_path_str}. Exiting.")
+                return
+
             importer = get_importer_for_file(file_path, db)
             if not importer:
                 return # Error already printed by factory
@@ -138,49 +154,50 @@ def main():
                 schema_info = {'required': [], 'unique': []} # For validation
                 for db_field in column_mapping.keys():
                     col_type = "TEXT"
+                    # Basic type inference for CLI - can be expanded
                     if 'email' in db_field.lower():
                         col_type = "TEXT UNIQUE"
                         schema_info['unique'].append(db_field)
-                    # Add more type heuristics here if needed
+                    elif any(id_kw in db_field.lower() for id_kw in ['id', 'identifier', 'number', 'num', 'pk']):
+                         # Avoid making all numeric fields INTEGER PRIMARY KEY automatically in CLI
+                         # Keep it simple unless more specific CLI schema options are added
+                        pass # Keep as TEXT or infer other types if needed.
                     schema_definition[db_field] = col_type
 
-                print(f"\nUsing inferred mapping:")
+                print(f"\nUsing inferred mapping and schema:")
                 for db_col, csv_col in column_mapping.items():
-                     print(f"  '{csv_col}' (CSV) -> '{db_col}' (DB - {schema_definition[db_col]})")
+                      print(f"  '{csv_col}' ({file_path.suffix}) -> '{db_col}' (DB - {schema_definition.get(db_col, 'TEXT')})")
                 print("")
-
 
             except Exception as e:
                 print(f"Error reading headers or preparing mapping: {e}")
-                logging.exception("Error in CLI header/mapping preparation:")
+                logger.exception("Error in CLI header/mapping preparation:")
                 return
 
             # --- Create table dynamically ---
             try:
                 if not db.create_dynamic_table(target_table_name, schema_definition):
-                     print(f"Error: Failed to create or verify table '{target_table_name}'. Check logs.")
-                     return
+                    print(f"Error: Failed to create or verify table '{target_table_name}'. Check logs.")
+                    return
                 else:
                     print(f"Table '{target_table_name}' ensured in database.")
             except Exception as e:
                 print(f"Error during table creation: {e}")
-                logging.exception(f"Error creating table {target_table_name} in CLI:")
+                logger.exception(f"Error creating table {target_table_name} in CLI:")
                 return
 
             # --- Perform import using base importer's process ---
             print("\nStarting data processing...")
             try:
-                # Pass the schema info derived above for validation purposes
                 results: ImportResult = importer.process_import(file_path, target_table_name, column_mapping, schema_info)
-                print_results(results) # Use the updated print function
+                print_results(results)
             except Exception as e:
                 print(f"\nImport failed critically: {e}")
-                logging.exception("Critical error during importer.process_import in CLI:")
+                logger.exception("Critical error during importer.process_import in CLI:")
 
     except Exception as e:
-         print(f"\nAn unexpected error occurred: {e}")
-         logging.exception("Unexpected error in CLI main execution:")
-
+        print(f"\nAn unexpected error occurred: {e}")
+        logger.exception("Unexpected error in CLI main execution:")
 
 if __name__ == "__main__":
     main()
