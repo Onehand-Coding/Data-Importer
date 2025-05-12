@@ -8,10 +8,26 @@ from typing import Optional, Dict, Any
 logger = logging.getLogger(__name__)
 
 class DatabaseManager:
-    def __init__(self, db_path: str = 'data/database.db'):
-        self.db_path = Path(db_path).resolve()
+    def __init__(self, db_path_str: str):
+
+        # Check for special in-memory SQLite URIs
+        if db_path_str == ":memory:" or db_path_str.startswith("file::memory"): # More robust check
+            self.db_path_is_memory = True
+            self.db_path_for_connection = db_path_str
+            self.db_path = Path(db_path_str) # Keep for display/logging if needed, but don't resolve for connection
+            logger.info(f"DatabaseManager initialized for IN-MEMORY database: {self.db_path_for_connection}")
+        else:
+            self.db_path_is_memory = False
+            # For regular files, resolve the path
+            try:
+                self.db_path = Path(db_path_str).resolve()
+                self.db_path_for_connection = str(self.db_path)
+                logger.info(f"DatabaseManager initialized for disk-based path: {self.db_path}")
+            except Exception as e: # Handle potential errors if db_path_str is not a valid path string
+                logger.error(f"Invalid file path string for DatabaseManager: {db_path_str} - {e}")
+                raise ValueError(f"Invalid database file path: {db_path_str}") from e
+
         self.connection: Optional[sqlite3.Connection] = None
-        logger.info(f"DatabaseManager initialized for path: {self.db_path}")
 
     def __enter__(self):
         self.connect()
@@ -21,22 +37,26 @@ class DatabaseManager:
         self.close()
 
     def connect(self) -> bool:
-        if self.connection: return True
         try:
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            # Use isolation_level=None for autocommit mode? No, manage commits explicitly.
-            self.connection = sqlite3.connect(self.db_path, check_same_thread=False) # Removed isolation_level=None
-            # self.connection.execute("PRAGMA journal_mode=WAL;") # Optional: WAL mode can improve concurrency
-            logger.info(f"Successfully connected to database: {self.db_path} (SQLite v{sqlite3.sqlite_version})")
+            if not self.db_path_is_memory:
+                # Ensure the parent directory for the database file exists only for disk-based DBs
+                db_parent_dir = self.db_path.parent
+                db_parent_dir.mkdir(parents=True, exist_ok=True)
+                # logger.info(f"Ensured database directory exists for file-based DB: {db_parent_dir}") # Already logged in __init__
+
+            # Use self.db_path_for_connection for the actual connection
+            self.connection = sqlite3.connect(self.db_path_for_connection, timeout=10, check_same_thread=False)
+            self.connection.execute("PRAGMA foreign_keys = ON;")
+            logger.info(f"Successfully connected to database: {self.db_path_for_connection} (SQLite v{sqlite3.sqlite_version})")
             return True
         except sqlite3.Error as e:
-            logger.error(f"Database connection error to {self.db_path}: {e}", exc_info=True)
+            logger.error(f"Database connection error to {self.db_path_for_connection}: {e}", exc_info=True)
             self.connection = None
             return False
-        except OSError as e:
-             logger.error(f"OS error preventing database connection (check permissions or path): {self.db_path}: {e}", exc_info=True)
-             self.connection = None
-             return False
+        except Exception as e: # Catch other potential errors during connect
+            logger.error(f"Unexpected error connecting to {self.db_path_for_connection}: {e}", exc_info=True)
+            self.connection = None
+            return False
 
     def close(self):
         if self.connection:

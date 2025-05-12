@@ -1,3 +1,6 @@
-pandas==2.2.3
-streamlit==1.44.1
+pandas
+streamlit
 openpyxl
+sqlalchemy
+psycopg2-binary
+mysql-connector-python
