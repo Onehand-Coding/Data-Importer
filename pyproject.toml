@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "data-importer-pro"
+version = "0.1.0"
+description = "A tool for automating data import from CSV, JSON, Excel, and database sources to SQLite."
+requires-python = ">=3.8"
+dependencies = [
+    "pandas",
+    "streamlit",
+    "openpyxl",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "mysql-connector-python"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[project.scripts]
+data-importer-cli = "data_importer.cli.main:main"
+data-importer-web = "data_importer.web.launcher:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/data_importer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

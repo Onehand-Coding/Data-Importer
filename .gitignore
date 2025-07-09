@@ -4,6 +4,9 @@ data/
 __pycache__/
 temp_uploads/
 sample_input/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
 
 # Database
 *.db

@@ -5,14 +5,14 @@ import unittest
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
-from core.database import DatabaseManager
-from core.importers.csv_importer import CSVImporter
-from core.importers.base_importer import ImportResult
+from data_importer.core.database import DatabaseManager
+from data_importer.core.importers.csv_importer import CSVImporter
+from data_importer.core.importers.base_importer import ImportResult
 
 logging.disable(logging.CRITICAL)
 
-class TestCSVImporter(unittest.TestCase):
 
+class TestCSVImporter(unittest.TestCase):
     def setUp(self):
         self.temp_dir = TemporaryDirectory()
         self.db_path = Path(self.temp_dir.name) / "test_csv_db.sqlite"
@@ -21,8 +21,14 @@ class TestCSVImporter(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def _create_temp_csv(self, content: str, suffix='.csv', encoding='utf-8') -> Path:
-        with NamedTemporaryFile(mode='w', suffix=suffix, delete=False, dir=self.temp_dir.name, encoding=encoding) as f:
+    def _create_temp_csv(self, content: str, suffix=".csv", encoding="utf-8") -> Path:
+        with NamedTemporaryFile(
+            mode="w",
+            suffix=suffix,
+            delete=False,
+            dir=self.temp_dir.name,
+            encoding=encoding,
+        ) as f:
             f.write(content)
             return Path(f.name)
 
@@ -32,22 +38,41 @@ John Doe,john@example.com,123456,Acme Inc
 Jane Smith,jane@example.com,,Startup Co"""
         csv_path = self._create_temp_csv(csv_content)
         table_name = "contacts_valid_csv"
-        mapping = {"name": "Name", "email": "Email", "phone": "Phone", "company": "Company"}
-        schema = {"name": "TEXT", "email": "TEXT UNIQUE", "phone": "TEXT", "company": "TEXT"}
-        schema_info_for_validation = {'unique': ['email'], 'required': ['name', 'email']}
+        mapping = {
+            "name": "Name",
+            "email": "Email",
+            "phone": "Phone",
+            "company": "Company",
+        }
+        schema = {
+            "name": "TEXT",
+            "email": "TEXT UNIQUE",
+            "phone": "TEXT",
+            "company": "TEXT",
+        }
+        schema_info_for_validation = {
+            "unique": ["email"],
+            "required": ["name", "email"],
+        }
 
         with self.db_manager as db:
             importer = CSVImporter(db)
-            importer.set_table_schema_info({
-                "name": {"required": True}, # For validate_mapped_row context
-                "email": {"is_email": True, "unique": True}
-            })
+            importer.set_table_schema_info(
+                {
+                    "name": {"required": True},  # For validate_mapped_row context
+                    "email": {"is_email": True, "unique": True},
+                }
+            )
             self.assertTrue(db.create_dynamic_table(table_name, schema))
-            results: ImportResult = importer.process_import(csv_path, table_name, mapping, schema_info_for_validation)
+            results: ImportResult = importer.process_import(
+                csv_path, table_name, mapping, schema_info_for_validation
+            )
 
         self.assertEqual(results.total_rows_processed, 2)
         self.assertEqual(results.rows_inserted, 2)
-        self.assertEqual(results.rows_skipped, 0, f"Expected 0 errors, got: {results.errors}")
+        self.assertEqual(
+            results.rows_skipped, 0, f"Expected 0 errors, got: {results.errors}"
+        )
         self.assertEqual(len(results.errors), 0)
 
         with self.db_manager as db:
@@ -55,10 +80,15 @@ Jane Smith,jane@example.com,,Startup Co"""
             self.assertIsNotNone(cursor)
             count = cursor.fetchone()[0]
             self.assertEqual(count, 2)
-            cursor = db.execute(f"SELECT phone FROM {table_name} WHERE name = 'Jane Smith'")
+            cursor = db.execute(
+                f"SELECT phone FROM {table_name} WHERE name = 'Jane Smith'"
+            )
             self.assertIsNotNone(cursor)
             phone_value = cursor.fetchone()[0]
-            self.assertIsNone(phone_value, f"Expected phone for Jane Smith to be NULL, got '{phone_value}'") # Changed to assertIsNone
+            self.assertIsNone(
+                phone_value,
+                f"Expected phone for Jane Smith to be NULL, got '{phone_value}'",
+            )  # Changed to assertIsNone
 
     def test_csv_missing_required_field_validation(self):
         csv_content = """Name,Email,Phone
@@ -68,22 +98,26 @@ Valid Name,valid@example.com,789012"""
         table_name = "contacts_req_csv"
         mapping = {"name": "Name", "email": "Email", "phone": "Phone"}
         schema = {"name": "TEXT NOT NULL", "email": "TEXT UNIQUE", "phone": "TEXT"}
-        schema_info_for_validation = {'required': ['name'], 'unique': ['email']}
+        schema_info_for_validation = {"required": ["name"], "unique": ["email"]}
 
         with self.db_manager as db:
             importer = CSVImporter(db)
-            importer.set_table_schema_info({
-                "name": {"required": True}, "email": {"is_email": True}
-            })
+            importer.set_table_schema_info(
+                {"name": {"required": True}, "email": {"is_email": True}}
+            )
             self.assertTrue(db.create_dynamic_table(table_name, schema))
-            results = importer.process_import(csv_path, table_name, mapping, schema_info_for_validation)
+            results = importer.process_import(
+                csv_path, table_name, mapping, schema_info_for_validation
+            )
 
         self.assertEqual(results.total_rows_processed, 2)
         self.assertEqual(results.rows_inserted, 1)
         self.assertEqual(results.rows_skipped, 1)
         self.assertEqual(len(results.errors), 1)
         # Expecting original cased 'Name' as per BaseImporter's original_header_name logic
-        self.assertIn("Required field 'Name' is missing or empty.", results.errors[0]['error'])
+        self.assertIn(
+            "Required field 'Name' is missing or empty.", results.errors[0]["error"]
+        )
 
     def test_csv_invalid_email_format_validation(self):
         csv_content = """Name,Email
@@ -94,22 +128,32 @@ Another Valid,another@sample.net"""
         table_name = "contacts_email_fmt_csv"
         mapping = {"name": "Name", "email": "Email"}
         schema = {"name": "TEXT", "email": "TEXT UNIQUE"}
-        schema_info_for_validation = {'unique': ['email']}
+        schema_info_for_validation = {"unique": ["email"]}
 
         with self.db_manager as db:
             importer = CSVImporter(db)
-            importer.set_table_schema_info({
-                "email": {"is_email": True, "unique" : True} # For validate_mapped_row
-            })
+            importer.set_table_schema_info(
+                {
+                    "email": {
+                        "is_email": True,
+                        "unique": True,
+                    }  # For validate_mapped_row
+                }
+            )
             self.assertTrue(db.create_dynamic_table(table_name, schema))
-            results = importer.process_import(csv_path, table_name, mapping, schema_info_for_validation)
+            results = importer.process_import(
+                csv_path, table_name, mapping, schema_info_for_validation
+            )
 
         self.assertEqual(results.total_rows_processed, 3)
         self.assertEqual(results.rows_inserted, 2)
         self.assertEqual(results.rows_skipped, 1)
         self.assertEqual(len(results.errors), 1)
         # Expecting original cased 'Email'
-        self.assertIn("Invalid format for field 'Email': 'invalid-email-format'.", results.errors[0]['error'])
+        self.assertIn(
+            "Invalid format for field 'Email': 'invalid-email-format'.",
+            results.errors[0]["error"],
+        )
 
     def test_csv_duplicate_entry_unique_constraint(self):
         csv_content = """Name,Email
@@ -120,21 +164,28 @@ Charlie,alice@example.com"""
         table_name = "contacts_dupe_csv"
         mapping = {"name_db": "Name", "email_db": "Email"}
         schema = {"name_db": "TEXT", "email_db": "TEXT UNIQUE"}
-        schema_info_for_validation = {'unique': ['email_db']}
+        schema_info_for_validation = {"unique": ["email_db"]}
 
         with self.db_manager as db:
             importer = CSVImporter(db)
-            importer.set_table_schema_info({"email_db": {"unique": True}}) # For _format_integrity_error context
+            importer.set_table_schema_info(
+                {"email_db": {"unique": True}}
+            )  # For _format_integrity_error context
             self.assertTrue(db.create_dynamic_table(table_name, schema))
-            results = importer.process_import(csv_path, table_name, mapping, schema_info_for_validation)
+            results = importer.process_import(
+                csv_path, table_name, mapping, schema_info_for_validation
+            )
 
         self.assertEqual(results.total_rows_processed, 3)
         self.assertEqual(results.rows_inserted, 2)
         self.assertEqual(results.rows_skipped, 1)
         self.assertEqual(len(results.errors), 1)
         # _format_integrity_error should use the original mapped CSV header 'Email'
-        self.assertIn("Skipped: Duplicate value for 'Email'", results.errors[0]['error'])
-        self.assertEqual(results.errors[0]['row'], '3')
+        self.assertIn(
+            "Skipped: Duplicate value for 'Email'", results.errors[0]["error"]
+        )
+        self.assertEqual(results.errors[0]["row"], "3")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()
