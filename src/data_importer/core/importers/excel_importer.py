@@ -1,12 +1,14 @@
 import logging
+from collections.abc import Generator
 from pathlib import Path
-from typing import Dict, List, Any, Generator, Optional
+from typing import Any
 
-import pandas as pd
 import openpyxl
+import pandas as pd
 
-from .base_importer import BaseImporter, ImportResult
 from data_importer.core.database import DatabaseManager
+
+from .base_importer import BaseImporter
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +25,7 @@ class ExcelImporter(BaseImporter):
         super().__init__(db_manager)
         logger.info(f"{self.__class__.__name__} initialized.")
 
-    def get_headers(self, file_path: Path) -> List[str]:
+    def get_headers(self, file_path: Path) -> list[str]:
         """Reads headers from the first sheet of an Excel file."""
         logger.info(f"Reading headers from Excel file: {file_path}")
         headers = []
@@ -108,7 +110,7 @@ class ExcelImporter(BaseImporter):
             # Return empty DataFrame on error
             return pd.DataFrame()
 
-    def read_data(self, file_path: Path) -> Generator[Dict[str, Any], None, None]:
+    def read_data(self, file_path: Path) -> Generator[dict[str, Any], None, None]:
         """
         Reads data row by row from the first sheet of an Excel file.
         Converts each row to a dictionary.
@@ -147,7 +149,7 @@ class ExcelImporter(BaseImporter):
 
                 # Create a dictionary for the row, handling potential None values and stripping strings
                 row_data = {}
-                for header, value in zip(header_row_values, values):
+                for header, value in zip(header_row_values, values, strict=False):
                     if header:  # Only include columns with actual headers
                         if isinstance(value, str):
                             row_data[header] = value.strip()

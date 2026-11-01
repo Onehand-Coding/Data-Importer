@@ -1,11 +1,12 @@
 import csv
 import logging
+from collections.abc import Generator
 from pathlib import Path
-from typing import Dict, List, Any, Generator, Optional
+from typing import Any
 
 import pandas as pd
 
-from data_importer.core.importers.base_importer import BaseImporter, ImportResult
+from data_importer.core.importers.base_importer import BaseImporter
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)
@@ -16,7 +17,7 @@ class CSVImporter(BaseImporter):
 
     SUPPORTED_EXTENSIONS = [".csv"]
 
-    def get_headers(self, file_path: Path) -> List[str]:
+    def get_headers(self, file_path: Path) -> list[str]:
         """Reads CSV headers."""
         logger.info(f"Reading headers from CSV: {file_path}")
         try:
@@ -41,7 +42,7 @@ class CSVImporter(BaseImporter):
                 except StopIteration:
                     raise ValueError(
                         "CSV file appears to be empty (could not read headers)."
-                    )
+                    ) from None
                 except Exception as csv_err:
                     logger.error(f"CSV reader fallback failed for headers: {csv_err}")
                     raise ValueError(
@@ -56,7 +57,7 @@ class CSVImporter(BaseImporter):
             logger.info(f"Found headers: {headers}")
             return headers
         except pd.errors.EmptyDataError:
-            raise ValueError("CSV file appears to be empty.")
+            raise ValueError("CSV file appears to be empty.") from None
         except Exception as e:
             logger.exception(f"Failed to read headers from {file_path}: {e}")
             raise  # Re-raise the exception
@@ -83,13 +84,13 @@ class CSVImporter(BaseImporter):
             try:  # Try to get headers to build empty frame
                 headers = self.get_headers(file_path)
                 return pd.DataFrame(columns=headers)
-            except:  # If headers fail too, return totally empty frame
+            except Exception:  # If headers fail too, return empty frame
                 return pd.DataFrame()
         except Exception as e:
             logger.exception(f"Failed to generate preview for {file_path}: {e}")
             raise
 
-    def read_data(self, file_path: Path) -> Generator[Dict[str, Any], None, None]:
+    def read_data(self, file_path: Path) -> Generator[dict[str, Any], None, None]:
         """Reads CSV data row by row using csv.DictReader."""
         logger.info(f"Reading data rows from CSV: {file_path}")
         try:
@@ -145,7 +146,7 @@ class CSVImporter(BaseImporter):
             raise  # Re-raise
 
     # Keep this only if needed for compatibility, but ideally remove
-    def import_from_file(self, file_path: Path, *args, **kwargs) -> Dict[str, Any]:
+    def import_from_file(self, file_path: Path, *args, **kwargs) -> dict[str, Any]:
         """Deprecated. Use process_import via factory."""
         # This method is no longer used by the updated CLI or tests.
         # It could be removed entirely or kept just for legacy reference.

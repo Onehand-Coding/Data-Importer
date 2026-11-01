@@ -1,13 +1,12 @@
 # Content for: tests/test_csv_importer.py
-import sqlite3
 import logging
 import unittest
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 from data_importer.core.database import DatabaseManager
-from data_importer.core.importers.csv_importer import CSVImporter
 from data_importer.core.importers.base_importer import ImportResult
+from data_importer.core.importers.csv_importer import CSVImporter
 
 logging.disable(logging.CRITICAL)
 

@@ -1,26 +1,23 @@
-import io
-import re
-import csv
-import sys
-import time
-import shutil
-import logging
 import datetime
+import io
+import logging
+import re
+import shutil
+import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import List, Dict, Type, Optional, Mapping, Any
+from typing import Any
 
 import pandas as pd
 import streamlit as st
 
-from data_importer.core.config import ROOT_DIR
+from data_importer.core.config import DATA_DIR
 from data_importer.core.database import DatabaseManager
 from data_importer.core.importers import (
-    BaseImporter,
-    ImportResult,
     AVAILABLE_IMPORTERS,
+    BaseImporter,
     DatabaseSourceImporter,
 )
-
 
 # --- Configure logging---
 logging.basicConfig(
@@ -28,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TEMP_DIR = ROOT_DIR / "data" / "temp_uploads"
+TEMP_DIR = DATA_DIR / "temp_uploads"
 try:
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
     now = time.time()
@@ -55,7 +52,9 @@ st.set_page_config(
 # --- Initialize Session State ---
 # For target DB (path is now defined in main UI if SQLite output is chosen)
 if "target_db_path_for_import" not in st.session_state:
-    st.session_state.target_db_path_for_import = "data/db/importer_pro.db"
+    st.session_state.target_db_path_for_import = str(
+        DATA_DIR / "db" / "importer_pro.db"
+    )
 if "target_db_manager_instance" not in st.session_state:
     st.session_state.target_db_manager_instance = None
 if "db_manager_current_path" not in st.session_state:
@@ -109,8 +108,8 @@ if "downloadable_file_prepared" not in st.session_state:
 
 # --- Importer Factory ---
 def get_importer_for_file(
-    file_path: Path, db_manager_for_target_if_needed: Optional[DatabaseManager]
-) -> Optional[BaseImporter]:
+    file_path: Path, db_manager_for_target_if_needed: DatabaseManager | None
+) -> BaseImporter | None:
     extension = file_path.suffix.lower()
     importer_class = AVAILABLE_IMPORTERS.get(extension)
     if importer_class:
@@ -144,7 +143,7 @@ def sanitize_name(name):
 
 
 @st.cache_resource
-def get_target_db_manager_cached(db_path_input_str) -> Optional[DatabaseManager]:
+def get_target_db_manager_cached(db_path_input_str) -> DatabaseManager | None:
     logger.info(f"Requesting TARGET DB Manager for path: {db_path_input_str}")
     if not db_path_input_str or not isinstance(db_path_input_str, str):
         logger.error(f"Invalid target db_path_input: {db_path_input_str}")
@@ -467,7 +466,7 @@ def show_database_source_connector_ui():
 @st.cache_data(show_spinner=False)
 def get_temporary_filepath(
     _file_content_bytes: bytes, original_filename: str
-) -> Optional[Path]:
+) -> Path | None:
     try:
         temp_file_name = generate_timestamped_filename(original_filename)
         temp_path = (TEMP_DIR / temp_file_name).resolve()
@@ -486,7 +485,7 @@ def get_cached_headers(
     _importer_instance_generic: Any,
     source_path_or_identifier: Any,
     is_query_for_db: bool = False,
-) -> List[str]:
+) -> list[str]:
     if isinstance(_importer_instance_generic, BaseImporter) and isinstance(
         source_path_or_identifier, Path
     ):
@@ -533,7 +532,7 @@ def get_cached_headers(
 
 # --- UI Sections ---
 def show_target_config_and_mapping_section(
-    active_source_headers: List[str],
+    active_source_headers: list[str],
     source_identifier_for_key: str,
     active_source_identifier: Any,
     active_is_db_query: bool,
@@ -725,8 +724,8 @@ def show_target_config_and_mapping_section(
 
 
 def show_data_preview_section(
-    preview_source_df: Optional[pd.DataFrame],
-    final_column_mapping: Optional[Mapping[str, str]],
+    preview_source_df: pd.DataFrame | None,
+    final_column_mapping: Mapping[str, str] | None,
 ):
     with st.expander("📊 Mapped Data Preview (First 5 Rows)", expanded=True):
         if preview_source_df is None or preview_source_df.empty:
@@ -763,13 +762,13 @@ def show_execute_destination_section(
     active_source_identifier: Any,
     active_is_db_query: bool,
     output_destination_type: str,
-    target_sqlite_db_manager: Optional[DatabaseManager],
-    target_sqlite_table_name: Optional[str],
-    final_output_mapping: Optional[Mapping[str, str]],
-    sql_type_target_schema: Optional[Dict[str, str]],
-    detailed_target_schema_for_validation: Optional[Dict[str, Any]],
-    download_file_format: Optional[str],
-    download_filename: Optional[str],
+    target_sqlite_db_manager: DatabaseManager | None,
+    target_sqlite_table_name: str | None,
+    final_output_mapping: Mapping[str, str] | None,
+    sql_type_target_schema: dict[str, str] | None,
+    detailed_target_schema_for_validation: dict[str, Any] | None,
+    download_file_format: str | None,
+    download_filename: str | None,
 ):
     with st.container(border=True):
         if output_destination_type == "Import to SQLite Database":
@@ -1058,7 +1057,7 @@ def main():
 
     # Display Target DB Path input in the sidebar. This function now just returns the path.
     # The actual DatabaseManager instance for the target is fetched conditionally later.
-    target_db_path_from_sidebar = show_target_db_path_input_ui()
+    show_target_db_path_input_ui()
 
     st.session_state.current_source_type = st.radio(
         "Select Data Source Type:",
@@ -1072,7 +1071,6 @@ def main():
     st.divider()
 
     active_importer_instance = None
-    active_source_headers = st.session_state.get("active_source_headers", [])
     active_preview_data = None
     active_source_identifier = None
     active_is_db_query = False
@@ -1146,7 +1144,6 @@ def main():
             "source_db_importer_instance"
         ):
             active_importer_instance = st.session_state.source_db_importer_instance
-            active_source_headers = st.session_state.get("source_db_headers", [])
             active_preview_data = st.session_state.get("source_db_preview_data")
             active_source_identifier = st.session_state.get(
                 "source_db_selected_table"

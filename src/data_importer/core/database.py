@@ -1,8 +1,7 @@
+import logging
 import re
 import sqlite3
-import logging
 from pathlib import Path
-from typing import Optional, Dict, Any
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)
@@ -39,7 +38,7 @@ class DatabaseManager:
                 )
                 raise ValueError(f"Invalid database file path: {db_path_str}") from e
 
-        self.connection: Optional[sqlite3.Connection] = None
+        self.connection: sqlite3.Connection | None = None
 
     def __enter__(self):
         self.connect()
@@ -116,7 +115,7 @@ class DatabaseManager:
 
     def execute(
         self, query: str, params: tuple = (), commit: bool = False
-    ) -> Optional[sqlite3.Cursor]:
+    ) -> sqlite3.Cursor | None:
         """
         Execute a SQL query.
         Re-raises IntegrityError for specific handling by caller.
@@ -147,7 +146,7 @@ class DatabaseManager:
             raise e  # <--- MODIFIED: Re-raise IntegrityError
         except sqlite3.Error as e:  # Catch other SQLite errors
             logger.error(
-                f"Database execution error: {e}\nQuery: {query}\nParams: {params}",
+                f"Database execution error: {e}\nQuery: {query}",
                 exc_info=True,
             )
             # Attempt Rollback on other SQLite errors
@@ -179,7 +178,7 @@ class DatabaseManager:
         return name.lower()  # Convert to lowercase
 
     def create_dynamic_table(
-        self, table_name: str, schema_definition: Dict[str, str]
+        self, table_name: str, schema_definition: dict[str, str]
     ) -> bool:
         """Creates a table dynamically based on the provided schema."""
         logger.info(

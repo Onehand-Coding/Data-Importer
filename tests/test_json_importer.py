@@ -2,14 +2,14 @@ import json
 import logging
 import unittest
 from pathlib import Path
-from typing import Any
 from tempfile import NamedTemporaryFile, TemporaryDirectory
+from typing import Any
 
 import pandas as pd
 
 from data_importer.core.database import DatabaseManager
-from data_importer.core.importers.json_importer import JSONImporter
 from data_importer.core.importers.base_importer import ImportResult
+from data_importer.core.importers.json_importer import JSONImporter
 
 # Suppress noisy logging during tests unless debugging
 logging.basicConfig(level=logging.WARNING)

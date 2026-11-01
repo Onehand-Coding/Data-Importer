@@ -1,11 +1,12 @@
 # Content for: core/importers/base_importer.py
-import sqlite3
 import json
 import logging
 import re
-from pathlib import Path
+import sqlite3
 from abc import ABC, abstractmethod
-from typing import Dict, List, Tuple, Any, Mapping, Optional, Generator
+from collections.abc import Generator, Mapping
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -21,10 +22,10 @@ class ImportResult:
         self.total_rows_processed: int = 0
         self.rows_inserted: int = 0
         self.rows_skipped: int = 0
-        self.errors: List[Dict[str, Any]] = []
+        self.errors: list[dict[str, Any]] = []
 
     def add_error(
-        self, row_number: Optional[int], error: str, data_snippet: Optional[str] = None
+        self, row_number: int | None, error: str, data_snippet: str | None = None
     ):
         """Adds an error to the import results."""
         row_display = str(row_number) if row_number is not None else "Unknown"
@@ -34,7 +35,7 @@ class ImportResult:
             f"Import Error [Row: {row_display}]: {error} - Data: {data_snippet}"
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Converts results to a dictionary."""
         return {
             "total": self.total_rows_processed,
@@ -50,11 +51,11 @@ class BaseImporter(ABC):
             raise ValueError("DatabaseManager instance is required.")
         self.db_manager = db_manager
         self.column_mapping: Mapping[str, str] = {}
-        self.schema_info: Dict[str, Any] = {}
+        self.schema_info: dict[str, Any] = {}
         logger.info(f"{self.__class__.__name__} initialized.")
 
     @abstractmethod
-    def get_headers(self, file_path: Path) -> List[str]:
+    def get_headers(self, file_path: Path) -> list[str]:
         pass
 
     @abstractmethod
@@ -62,18 +63,18 @@ class BaseImporter(ABC):
         pass
 
     @abstractmethod
-    def read_data(self, file_path: Path) -> Generator[Dict[str, Any], None, None]:
+    def read_data(self, file_path: Path) -> Generator[dict[str, Any], None, None]:
         pass
 
     def set_column_mapping(self, column_mapping: Mapping[str, str]):
         self.column_mapping = column_mapping
         logger.debug(f"Column mapping set for importer: {self.column_mapping}")
 
-    def set_table_schema_info(self, schema_info: Dict[str, Any]):
+    def set_table_schema_info(self, schema_info: dict[str, Any]):
         self.schema_info = schema_info
         logger.debug(f"Table schema info set for importer: {self.schema_info}")
 
-    def _map_row(self, raw_row: Dict[str, Any]) -> Dict[str, Any]:
+    def _map_row(self, raw_row: dict[str, Any]) -> dict[str, Any]:
         target_data = {}
         for db_field, source_header in self.column_mapping.items():
             value = raw_row.get(source_header)
@@ -94,7 +95,7 @@ class BaseImporter(ABC):
         return target_data
 
     def _format_data_snippet(
-        self, data_row: Optional[Dict[str, Any]], max_len: int = 100
+        self, data_row: dict[str, Any] | None, max_len: int = 100
     ) -> str:
         if data_row is None:
             return "{}"
@@ -114,7 +115,7 @@ class BaseImporter(ABC):
         return snippet
 
     def _format_integrity_error(
-        self, e: sqlite3.IntegrityError, schema_info_for_validation: Dict
+        self, e: sqlite3.IntegrityError, schema_info_for_validation: dict
     ) -> str:
         msg = str(e)
         unique_match = re.search(
@@ -153,12 +154,12 @@ class BaseImporter(ABC):
 
     def validate_mapped_row(
         self,
-        mapped_row: Dict[str, Any],
-        row_number: Optional[int],
-        schema_info_for_validation: Dict[str, Any],
-    ) -> Tuple[bool, List[str]]:
+        mapped_row: dict[str, Any],
+        row_number: int | None,
+        schema_info_for_validation: dict[str, Any],
+    ) -> tuple[bool, list[str]]:
         is_valid = True
-        errors: List[str] = []
+        errors: list[str] = []
 
         required_fields = schema_info_for_validation.get("required", [])
 
@@ -203,9 +204,9 @@ class BaseImporter(ABC):
     def _insert_data(
         self,
         sanitized_table_name: str,
-        data_to_insert: Dict[str, Any],
+        data_to_insert: dict[str, Any],
         result: ImportResult,
-        row_number: Optional[int],
+        row_number: int | None,
     ) -> bool:
         if not data_to_insert:
             result.add_error(row_number, "No data to insert (empty mapped row).", None)
@@ -257,7 +258,7 @@ class BaseImporter(ABC):
         file_path: Path,
         table_name: str,
         column_mapping: Mapping[str, str],
-        schema_info_for_validation: Dict[str, Any],
+        schema_info_for_validation: dict[str, Any],
     ) -> ImportResult:
         results = ImportResult()
         self.set_column_mapping(column_mapping)

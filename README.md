@@ -1,12 +1,13 @@
 # Data Entry Automation Tool
 
+[![CI](https://github.com/Onehand-Coding/Data-Importer/actions/workflows/ci.yml/badge.svg)](https://github.com/Onehand-Coding/Data-Importer/actions/workflows/ci.yml)
+
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.44.1-FF4B4B.svg)](https://streamlit.io/)
 [![Pandas](https://img.shields.io/badge/Pandas-2.2.3-150458.svg)](https://pandas.pydata.org/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-✓-orange.svg)](https://www.sqlalchemy.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-3.x-003B57.svg)](https://www.sqlite.org/)
 [![Openpyxl](https://img.shields.io/badge/Openpyxl-✓-green.svg)](https://openpyxl.readthedocs.io/)
-[![Tests](https://img.shields.io/badge/tests-47%20passed-green.svg)](https://github.com/Onehand-Coding/data-importer)
 
 A professional data entry automation tool that streamlines the process of importing data from various sources (CSV, JSON, Excel, and relational databases) into SQLite databases with intelligent validation, dynamic table creation, and flexible export capabilities.
 
@@ -57,12 +58,20 @@ uv sync
 
 ### Development Setup
 ```bash
-# Install with development dependencies
 uv sync --extra dev
-
-# Run tests to verify installation
+uv run ruff check .
+uv run ruff format --check .
 uv run pytest
 ```
+
+CI runs the same checks plus a wheel build.
+
+## 📁 Runtime Data
+
+Temporary uploads and the default web database live outside the repository:
+
+- Default: the system temp directory under `data-importer/`
+- Override: `DATA_IMPORTER_DATA_DIR=/path/to/data`
 
 ## 📋 Usage
 

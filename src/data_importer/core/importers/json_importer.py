@@ -1,12 +1,14 @@
 import json
 import logging
+from collections.abc import Iterator
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Iterator
+from typing import Any
 
 import pandas as pd
 
 from data_importer.core.database import DatabaseManager
-from .base_importer import BaseImporter, ImportResult
+
+from .base_importer import BaseImporter
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)
@@ -47,9 +49,9 @@ class JSONImporter(BaseImporter):
             encoding (str): The file encoding to use. Defaults to 'utf-8'.
         """
         super().__init__(db_manager)
-        self.data: Optional[List[Dict[str, Any]]] = None
+        self.data: list[dict[str, Any]] | None = None
         self.encoding: str = encoding
-        self.file_path_loaded: Optional[Path] = (
+        self.file_path_loaded: Path | None = (
             None  # Tracks the path of the currently loaded file data
         )
         logger.info(f"JSONImporter initialized with encoding '{self.encoding}'.")
@@ -135,7 +137,7 @@ class JSONImporter(BaseImporter):
                 f"Successfully loaded {len(self.data)} records from {file_path.name}."
             )
 
-    def get_headers(self, file_path: Path) -> List[str]:
+    def get_headers(self, file_path: Path) -> list[str]:
         """
         Extracts headers from the JSON file by taking a union of all keys from all objects
         in the list. If the JSON list is empty or items are not objects,
@@ -261,7 +263,7 @@ class JSONImporter(BaseImporter):
         )
         return df
 
-    def read_data(self, file_path: Path) -> Iterator[Dict[str, Any]]:
+    def read_data(self, file_path: Path) -> Iterator[dict[str, Any]]:
         """
         Reads JSON data from the specified file path after ensuring it's loaded.
         Yields each dictionary (object) from the JSON list.

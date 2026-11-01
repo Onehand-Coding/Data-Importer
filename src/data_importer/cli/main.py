@@ -1,17 +1,15 @@
-import re
-import sys
-import logging
 import argparse
+import logging
+import re
 from pathlib import Path
-from typing import Optional, Dict, Type
 
 from data_importer.core.database import DatabaseManager
 from data_importer.core.importers import (
     BaseImporter,
-    ImportResult,
     CSVImporter,
-    JSONImporter,
     ExcelImporter,
+    ImportResult,
+    JSONImporter,
 )
 
 # --- Configure Logging ---
@@ -21,7 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- Importer Factory (Updated for CLI) ---
-IMPORTER_REGISTRY: Dict[str, Type[BaseImporter]] = {
+IMPORTER_REGISTRY: dict[str, type[BaseImporter]] = {
     ".csv": CSVImporter,
     ".json": JSONImporter,
     ".xlsx": ExcelImporter,  # <-- Add ExcelImporter here
@@ -30,7 +28,7 @@ IMPORTER_REGISTRY: Dict[str, Type[BaseImporter]] = {
 
 def get_importer_for_file(
     file_path: Path, db_manager: DatabaseManager
-) -> Optional[BaseImporter]:
+) -> BaseImporter | None:
     """Factory function to get an importer instance based on file extension."""
     extension = file_path.suffix.lower()
     importer_class = IMPORTER_REGISTRY.get(extension)
@@ -116,7 +114,7 @@ def main():
         print(f"Error: File not found - {file_path}")
         return
 
-    if not file_path.suffix.lower() in IMPORTER_REGISTRY:
+    if file_path.suffix.lower() not in IMPORTER_REGISTRY:
         print(f"Error: Unsupported file type: {file_path.suffix}")
         print(f"Supported types are: {', '.join(IMPORTER_REGISTRY.keys())}")
         return
@@ -193,7 +191,7 @@ def main():
                         pass  # Keep as TEXT or infer other types if needed.
                     schema_definition[db_field] = col_type
 
-                print(f"\nUsing inferred mapping and schema:")
+                print("\nUsing inferred mapping and schema:")
                 for db_col, csv_col in column_mapping.items():
                     print(
                         f"  '{csv_col}' ({file_path.suffix}) -> '{db_col}' (DB - {schema_definition.get(db_col, 'TEXT')})"

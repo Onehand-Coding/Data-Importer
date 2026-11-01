@@ -1,23 +1,18 @@
 # tests/test_database_source_importer.py
+import logging
 import unittest
-from unittest.mock import patch, MagicMock, ANY
-import sqlite3
-from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 from sqlalchemy import create_engine, inspect, text  # Ensure text is imported
 from sqlalchemy.exc import (
-    SQLAlchemyError,
-    OperationalError as SQLAlchemyOperationalError,
     NoSuchTableError,
+    SQLAlchemyError,
 )
-# from sqlalchemy.sql.elements import TextClause # Alternative for isinstance check
 
+# from sqlalchemy.sql.elements import TextClause # Alternative for isinstance check
 from data_importer.core.database import DatabaseManager
 from data_importer.core.importers.database_source_importer import DatabaseSourceImporter
-from data_importer.core.importers.base_importer import ImportResult
-
-import logging
 
 logging.disable(logging.CRITICAL)  # Disable logging for cleaner test output
 
@@ -73,11 +68,10 @@ class TestDatabaseSourceImporter(unittest.TestCase):
         self.inspect_patcher.stop()
 
         real_engine = create_engine(conn_str)
-        with patch(
-            "sqlalchemy.create_engine", return_value=real_engine
-        ) as mock_create_real, patch(
-            "sqlalchemy.inspect", return_value=inspect(real_engine)
-        ) as mock_inspect_real:
+        with (
+            patch("sqlalchemy.create_engine", return_value=real_engine),
+            patch("sqlalchemy.inspect", return_value=inspect(real_engine)),
+        ):
             self.assertTrue(self.importer.connect_to_source(conn_str))
             self.assertIsNotNone(self.importer.source_engine)
             self.assertEqual(self.importer.source_engine.name, "sqlite")
