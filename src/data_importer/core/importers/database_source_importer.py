@@ -1,16 +1,17 @@
-import logging
-from pathlib import Path
-from typing import Dict, List, Any, Generator, Optional, Mapping, Tuple
-import re
 import json
+import logging
+import re
+import sqlite3
+from collections.abc import Generator, Mapping
+from typing import Any
 
 import pandas as pd
-from sqlalchemy import create_engine, text, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
-import sqlite3
 
 from data_importer.core.database import DatabaseManager
+
 from .base_importer import ImportResult
 
 logger = logging.getLogger(__name__)
@@ -23,12 +24,12 @@ class DatabaseSourceImporter:
     """
 
     def __init__(self):  # No target_db_manager here anymore
-        self.source_engine: Optional[Engine] = None
+        self.source_engine: Engine | None = None
         self.source_inspector = None
         # These will be set by process_import_to_target or other methods needing them
         self.column_mapping: Mapping[str, str] = {}
-        self.target_schema_info: Dict[str, Any] = {}
-        self.target_db_manager: Optional[DatabaseManager] = (
+        self.target_schema_info: dict[str, Any] = {}
+        self.target_db_manager: DatabaseManager | None = (
             None  # Will be set by process_import_to_target
         )
         logger.info(f"{self.__class__.__name__} initialized.")
@@ -51,7 +52,7 @@ class DatabaseSourceImporter:
             if self.source_engine:
                 self.source_engine.dispose()
             self.source_engine = create_engine(connection_string)
-            with self.source_engine.connect() as connection:
+            with self.source_engine.connect():
                 self.source_inspector = inspect(self.source_engine)
             logger.info(
                 f"Successfully connected to source database ({self.source_engine.name if self.source_engine else 'N/A'})."
@@ -81,7 +82,7 @@ class DatabaseSourceImporter:
             self.source_engine = None
             self.source_inspector = None
 
-    def get_table_names_from_source(self) -> List[str]:
+    def get_table_names_from_source(self) -> list[str]:
         # ... (no changes from before) ...
         if not self.source_engine or not self.source_inspector:
             logger.error("Not connected to source database. Cannot get table names.")
@@ -111,7 +112,7 @@ class DatabaseSourceImporter:
 
     def get_headers_from_source(
         self, source_identifier: str, is_query: bool
-    ) -> List[str]:
+    ) -> list[str]:
         # ... (no changes from before) ...
         if not self.source_engine:
             raise ConnectionError(
@@ -199,7 +200,7 @@ class DatabaseSourceImporter:
 
     def read_data_from_source(
         self, source_identifier: str, is_query: bool, chunk_size: int = 100
-    ) -> Generator[Dict[str, Any], None, None]:
+    ) -> Generator[dict[str, Any], None, None]:
         # ... (no changes from before) ...
         if not self.source_engine:
             raise ConnectionError("Not connected to source database for reading data.")
@@ -243,14 +244,14 @@ class DatabaseSourceImporter:
             f"DatabaseSourceImporter: Column mapping for target set: {self.column_mapping}"
         )
 
-    def set_table_schema_info(self, schema_info: Dict[str, Any]):
+    def set_table_schema_info(self, schema_info: dict[str, Any]):
         self.target_schema_info = schema_info
         logger.debug(
             f"DatabaseSourceImporter: Target table schema info set: {self.target_schema_info}"
         )
 
     def _map_row_to_snippet_str(
-        self, data_row: Optional[Dict[str, Any]], max_len: int = 100
+        self, data_row: dict[str, Any] | None, max_len: int = 100
     ) -> str:
         # ... (no changes from before) ...
         if data_row is None:
@@ -262,8 +263,8 @@ class DatabaseSourceImporter:
         return snippet[: max_len - 3] + "..." if len(snippet) > max_len else snippet
 
     def _map_source_row_to_target(
-        self, raw_source_row: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, raw_source_row: dict[str, Any]
+    ) -> dict[str, Any]:
         # ... (no changes from before) ...
         data_for_target_table = {}
         if not self.column_mapping:
@@ -300,13 +301,13 @@ class DatabaseSourceImporter:
 
     def _validate_target_row(
         self,
-        mapped_target_row: Dict[str, Any],
-        row_number: Optional[int],
-        schema_info_for_validation: Dict[str, Any],
-    ) -> Tuple[bool, List[str]]:
+        mapped_target_row: dict[str, Any],
+        row_number: int | None,
+        schema_info_for_validation: dict[str, Any],
+    ) -> tuple[bool, list[str]]:
         # ... (no changes from before, uses self.target_schema_info and self.column_mapping) ...
         is_valid = True
-        errors: List[str] = []
+        errors: list[str] = []
         required_fields = schema_info_for_validation.get("required", [])
         for req_field in required_fields:
             original_source_header = req_field
@@ -350,9 +351,9 @@ class DatabaseSourceImporter:
     def _insert_data_to_target(
         self,
         sanitized_target_table_name: str,
-        data_to_insert: Dict[str, Any],
+        data_to_insert: dict[str, Any],
         result: ImportResult,
-        row_number: Optional[int],
+        row_number: int | None,
     ) -> bool:
         # ... (no changes from before, uses self.target_db_manager) ...
         if not data_to_insert:
@@ -402,8 +403,8 @@ class DatabaseSourceImporter:
         is_query: bool,
         target_table_name: str,
         column_mapping_for_target: Mapping[str, str],
-        detailed_schema_for_target_table: Dict[str, Any],
-        schema_info_for_target_validation: Dict[str, Any],
+        detailed_schema_for_target_table: dict[str, Any],
+        schema_info_for_target_validation: dict[str, Any],
     ) -> ImportResult:
         results = ImportResult()
         if target_db_manager is None:

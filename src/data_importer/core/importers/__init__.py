@@ -1,8 +1,8 @@
 from .base_importer import BaseImporter, ImportResult
 from .csv_importer import CSVImporter
-from .json_importer import JSONImporter
-from .excel_importer import ExcelImporter
 from .database_source_importer import DatabaseSourceImporter
+from .excel_importer import ExcelImporter
+from .json_importer import JSONImporter
 
 AVAILABLE_IMPORTERS = {
     ".csv": CSVImporter,

@@ -1,15 +1,14 @@
 # Content for: tests/test_excel_importer.py
-import unittest
 import logging
-import sqlite3
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import pandas as pd
+
 import openpyxl
 
 from data_importer.core.database import DatabaseManager
-from data_importer.core.importers.excel_importer import ExcelImporter
 from data_importer.core.importers.base_importer import ImportResult
+from data_importer.core.importers.excel_importer import ExcelImporter
 
 logging.disable(logging.CRITICAL)
 
